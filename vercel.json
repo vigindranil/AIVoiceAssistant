@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
+  "fluid": true,
   "rewrites": [
     { "source": "/api/diagnostics", "destination": "/api/diagnostics" },
     { "source": "/api/stream", "destination": "/api/stream" },
@@ -8,12 +9,10 @@
   ],
   "functions": {
     "api/index.js": {
-      "maxDuration": 300,
-      "includeFiles": ["public/**", "bot.json"]
+      "maxDuration": 300
     },
     "api/stream.js": {
-      "maxDuration": 300,
-      "includeFiles": ["bot.json"]
+      "maxDuration": 300
     }
   }
 }
