@@ -33,6 +33,7 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/api/stream' });
+const IS_VERCEL = Boolean(process.env.VERCEL);
 const PORT = process.env.PORT || 3000;
 const DEFAULT_SAMPLE_RATE_HERTZ = Number(process.env.SAMPLE_RATE_HERTZ) || 16000;
 const OPUS_SAMPLE_RATE_HERTZ = Number(process.env.OPUS_SAMPLE_RATE_HERTZ) || 48000;
@@ -49,9 +50,12 @@ const OPENAI_REALTIME_SESSION_MODEL = process.env.OPENAI_REALTIME_SESSION_MODEL 
 const MIN_ANSWER_CONFIDENCE = Number(process.env.MIN_ANSWER_CONFIDENCE) || 0.55;
 if (!['google', 'openai'].includes(STT_PROVIDER)) throw new Error('STT_PROVIDER must be "google" or "openai".');
 const MAX_SPEECH_CONTEXT_PHRASES = Number(process.env.MAX_SPEECH_CONTEXT_PHRASES) || 200;
-const DATA_DIR = path.join(__dirname, '..', 'data');
+const DATA_DIR = process.env.SESSION_STORAGE_DIR
+  ? path.resolve(process.env.SESSION_STORAGE_DIR)
+  : IS_VERCEL ? path.join('/tmp', 'ai-voice-assistant-data') : path.join(__dirname, '..', 'data');
 const PHOTO_DIR = path.join(DATA_DIR, 'photos');
 const sessions = new Map();
+fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(PHOTO_DIR, { recursive: true });
 for (const filename of fs.readdirSync(DATA_DIR).filter(name => name.startsWith('VISIT-') && name.endsWith('.json'))) {
   try {
@@ -63,11 +67,23 @@ for (const filename of fs.readdirSync(DATA_DIR).filter(name => name.startsWith('
 }
 
 // Initialize Google Cloud Speech-to-Text client
-const speechClient = new speech.SpeechClient(
-  process.env.GOOGLE_APPLICATION_CREDENTIALS
-    ? { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS }
-    : undefined
-);
+function googleSpeechClientOptions() {
+  if (process.env.GOOGLE_CLOUD_CREDENTIALS_JSON) {
+    try {
+      const raw = process.env.GOOGLE_CLOUD_CREDENTIALS_JSON.trim();
+      const json = raw.startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+      return { credentials: JSON.parse(json) };
+    } catch (error) {
+      throw new Error(`GOOGLE_CLOUD_CREDENTIALS_JSON is invalid: ${error.message}`);
+    }
+  }
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+    return { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS };
+  }
+  return undefined;
+}
+
+const speechClient = new speech.SpeechClient(googleSpeechClientOptions());
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -87,7 +103,7 @@ const photoUpload = multer({
 });
 
 // Middleware
-app.use(express.static('public', {
+app.use(express.static(path.join(__dirname, '..', 'public'), {
   etag: false,
   maxAge: 0,
   setHeaders: res => res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate'),
@@ -468,10 +484,15 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     message: 'Server is running',
-    googleCredentialsConfigured: Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS),
+    googleCredentialsConfigured: Boolean(
+      process.env.GOOGLE_CLOUD_CREDENTIALS_JSON
+      || (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS))
+    ),
     sttProvider: STT_PROVIDER,
     sttModel: STT_PROVIDER === 'openai' ? OPENAI_REALTIME_STT_MODEL : INTAKE_SPEECH_MODEL,
     realtimeStreaming: true,
+    deployment: IS_VERCEL ? 'vercel' : 'node-server',
+    storageMode: IS_VERCEL ? 'ephemeral-/tmp' : 'local-filesystem',
     loadedMedicalPhraseHints: medicalPhrases.length,
     activeMedicalPhraseHints: getActiveMedicalPhrases().length,
   });
@@ -781,11 +802,14 @@ server.on('error', error => {
 wss.on('error', error => {
   if (error.code !== 'EADDRINUSE') console.error('WebSocket server error:', error.message);
 });
-server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-  console.log(`Google Cloud Speech-to-Text integrated (${INTAKE_SPEECH_MODEL}, ${INTAKE_LANGUAGE_CODE})`);
-  console.log(`Active speech-to-text provider: ${STT_PROVIDER === 'openai' ? `OpenAI ${OPENAI_REALTIME_STT_MODEL}` : `Google ${INTAKE_SPEECH_MODEL}`}`);
-  console.log('Real-time streaming endpoint ready at ws://localhost:%s/api/stream', PORT);
-});
+if (!IS_VERCEL) {
+  server.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+    console.log(`Google Cloud Speech-to-Text integrated (${INTAKE_SPEECH_MODEL}, ${INTAKE_LANGUAGE_CODE})`);
+    console.log(`Active speech-to-text provider: ${STT_PROVIDER === 'openai' ? `OpenAI ${OPENAI_REALTIME_STT_MODEL}` : `Google ${INTAKE_SPEECH_MODEL}`}`);
+    console.log('Real-time streaming endpoint ready at ws://localhost:%s/api/stream', PORT);
+  });
+}
 
-module.exports = app;
+module.exports = server;
+module.exports.app = app;
