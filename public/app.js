@@ -1,4 +1,5 @@
 let visitId = null;
+let sessionToken = null;
 let currentQuestion = null;
 let mediaStream = null;
 let audioContext = null;
@@ -71,6 +72,7 @@ async function startVisit() {
 
 function render(data) {
   if (data.visit_id) visitId = data.visit_id;
+  if (data.session_token) sessionToken = data.session_token;
   if (data.escalation_flag) $('urgentBanner').classList.remove('hidden');
   if (data.escalation?.message) speak(data.escalation.message);
   if (data.status !== 'in_progress' || data.completed) return renderComplete(data);
@@ -120,7 +122,7 @@ async function submitAnswer(raw) {
   try {
     setBusy(true); setStatus('Checking your answer…', 'loading');
     const data = await api(`/api/sessions/${encodeURIComponent(visitId)}/answer`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw_transcript: raw, transcription_alternatives: recognitionAlternatives }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ raw_transcript: raw, transcription_alternatives: recognitionAlternatives, session_token: sessionToken }),
     });
     render(data);
   } catch (error) { setStatus(error.message, 'error'); }
@@ -305,14 +307,16 @@ async function uploadPhoto() {
   const file = $('photoInput').files[0]; if (!file) return;
   try {
     setBusy(true); setStatus('Saving the photo…', 'loading');
-    const body = new FormData(); body.append('photo', file);
+    const body = new FormData(); body.append('photo', file); body.append('session_token', sessionToken || '');
     render(await api(`/api/sessions/${encodeURIComponent(visitId)}/photo`, { method: 'POST', body }));
   } catch (error) { setStatus(error.message, 'error'); }
   finally { setBusy(false); }
 }
 
 async function reopenLast() {
-  try { render(await api(`/api/sessions/${encodeURIComponent(visitId)}/reopen-last`, { method: 'POST' })); }
+  try { render(await api(`/api/sessions/${encodeURIComponent(visitId)}/reopen-last`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_token: sessionToken }),
+  })); }
   catch (error) { setStatus(error.message, 'error'); }
 }
 
@@ -396,7 +400,9 @@ async function downloadPdfReport() {
   try {
     button.disabled = true;
     button.textContent = 'Preparing PDF…';
-    const response = await fetch(`/api/sessions/${encodeURIComponent(visitId)}/report.pdf`);
+    const response = await fetch(`/api/sessions/${encodeURIComponent(visitId)}/report.pdf`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_token: sessionToken }),
+    });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
       throw new Error(body.error || 'The PDF could not be generated.');

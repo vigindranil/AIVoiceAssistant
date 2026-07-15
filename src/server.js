@@ -4,6 +4,8 @@ const path = require('path');
 const speech = require('@google-cloud/speech');
 const http = require('http');
 const fs = require('fs');
+const crypto = require('crypto');
+const zlib = require('zlib');
 const { WebSocket, WebSocketServer } = require('ws');
 const medicalPhrases = require('./medicalPhrases');
 const { cleanTranscript } = require('./transcriptCleaner');
@@ -130,6 +132,34 @@ function persistSession(session) {
   fs.writeFileSync(path.join(DATA_DIR, `${session.visit_id}.json`), JSON.stringify(session, null, 2));
 }
 
+function sessionSigningSecret() {
+  const secret = process.env.SESSION_SIGNING_SECRET
+    || process.env.GOOGLE_CLOUD_CREDENTIALS_JSON
+    || process.env.OPENAI_API_KEY;
+  if (secret) return secret;
+  if (!global.__localSessionSigningSecret) global.__localSessionSigningSecret = crypto.randomBytes(32).toString('hex');
+  return global.__localSessionSigningSecret;
+}
+
+function encodeSessionToken(session) {
+  const key = crypto.createHash('sha256').update(sessionSigningSecret()).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(zlib.deflateRawSync(Buffer.from(JSON.stringify(session)))), cipher.final()]);
+  return `${iv.toString('base64url')}.${encrypted.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}`;
+}
+
+function decodeSessionToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const [ivValue, encryptedValue, tagValue, extra] = token.split('.');
+  if (!ivValue || !encryptedValue || !tagValue || extra) throw new Error('The visit session token is invalid. Please start a new visit.');
+  const key = crypto.createHash('sha256').update(sessionSigningSecret()).digest();
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivValue, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagValue, 'base64url'));
+  const compressed = Buffer.concat([decipher.update(Buffer.from(encryptedValue, 'base64url')), decipher.final()]);
+  return JSON.parse(zlib.inflateRawSync(compressed).toString('utf8'));
+}
+
 async function dispatchAlert(session, detail) {
   const alert = [...session.alerts].reverse().find(item => item.timestamp === detail.timestamp && item.action === detail.action);
   if (!process.env.FRONT_DESK_ALERT_URL) return;
@@ -152,9 +182,24 @@ async function dispatchAlert(session, detail) {
 }
 
 function getSessionOrRespond(req, res) {
-  const session = sessions.get(req.params.visitId);
-  if (!session) res.status(404).json({ error: 'Visit session not found.' });
-  return session;
+  try {
+    const token = req.body?.session_token;
+    const restored = token ? decodeSessionToken(token) : null;
+    if (restored) {
+      if (restored.visit_id !== req.params.visitId) {
+        res.status(400).json({ error: 'The visit session does not match this request.' });
+        return null;
+      }
+      sessions.set(restored.visit_id, restored);
+      return restored;
+    }
+    const session = sessions.get(req.params.visitId);
+    if (!session) res.status(404).json({ error: 'Visit session not found. Please start a new visit.' });
+    return session;
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+    return null;
+  }
 }
 
 function buildSummary(session) {
@@ -242,6 +287,7 @@ function sessionResponse(session, extra = {}) {
   persistSession(session);
   return {
     visit_id: session.visit_id,
+    session_token: encodeSessionToken(session),
     form: { form_id: form.form_id, title: form.title, version: form.version, description: form.description },
     status: session.form_completion_status,
     escalation_flag: session.escalation_flag,
@@ -301,7 +347,7 @@ app.get('/api/sessions/:visitId', (req, res) => {
   res.json({ ...sessionResponse(session), session });
 });
 
-app.get('/api/sessions/:visitId/report.pdf', (req, res, next) => {
+function sendPdfReport(req, res, next) {
   try {
     const session = getSessionOrRespond(req, res);
     if (!session) return;
@@ -316,7 +362,10 @@ app.get('/api/sessions/:visitId/report.pdf', (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+}
+
+app.get('/api/sessions/:visitId/report.pdf', sendPdfReport);
+app.post('/api/sessions/:visitId/report.pdf', sendPdfReport);
 
 app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
   try {
