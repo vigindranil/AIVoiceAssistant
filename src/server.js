@@ -44,15 +44,17 @@ const INTAKE_LANGUAGE_CODE = process.env.INTAKE_LANGUAGE_CODE || 'en-IN';
 const OPENAI_TTS_MODEL = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
 const OPENAI_TTS_VOICE = process.env.OPENAI_TTS_VOICE || 'marin';
 const OPENAI_TTS_SPEED = Number(process.env.OPENAI_TTS_SPEED) || 1.08;
-const STT_PROVIDER = String(process.env.STT_PROVIDER || 'google').toLowerCase();
+const requestedSttProvider = String(process.env.STT_PROVIDER || 'google').trim().toLowerCase();
+const STT_PROVIDER = ['google', 'openai'].includes(requestedSttProvider) ? requestedSttProvider : 'google';
 const OPENAI_REALTIME_STT_MODEL = process.env.OPENAI_REALTIME_STT_MODEL || 'gpt-realtime-whisper';
 const OPENAI_REALTIME_SESSION_MODEL = process.env.OPENAI_REALTIME_SESSION_MODEL || 'gpt-realtime-mini';
 const MIN_ANSWER_CONFIDENCE = Number(process.env.MIN_ANSWER_CONFIDENCE) || 0.55;
-if (!['google', 'openai'].includes(STT_PROVIDER)) throw new Error('STT_PROVIDER must be "google" or "openai".');
+if (requestedSttProvider !== STT_PROVIDER) console.warn(`Invalid STT_PROVIDER "${requestedSttProvider}"; falling back to google.`);
 const MAX_SPEECH_CONTEXT_PHRASES = Number(process.env.MAX_SPEECH_CONTEXT_PHRASES) || 200;
-const DATA_DIR = process.env.SESSION_STORAGE_DIR
-  ? path.resolve(process.env.SESSION_STORAGE_DIR)
-  : IS_VERCEL ? path.join('/tmp', 'ai-voice-assistant-data') : path.join(__dirname, '..', 'data');
+const requestedStorageDir = process.env.SESSION_STORAGE_DIR ? path.resolve(process.env.SESSION_STORAGE_DIR) : null;
+const DATA_DIR = IS_VERCEL
+  ? (requestedStorageDir?.startsWith('/tmp/') ? requestedStorageDir : path.join('/tmp', 'ai-voice-assistant-data'))
+  : requestedStorageDir || path.join(__dirname, '..', 'data');
 const PHOTO_DIR = path.join(DATA_DIR, 'photos');
 const sessions = new Map();
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -83,7 +85,11 @@ function googleSpeechClientOptions() {
   return undefined;
 }
 
-const speechClient = new speech.SpeechClient(googleSpeechClientOptions());
+let speechClient = null;
+function getSpeechClient() {
+  if (!speechClient) speechClient = new speech.SpeechClient(googleSpeechClientOptions());
+  return speechClient;
+}
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -528,7 +534,7 @@ wss.on('connection', (ws) => {
     const encoding = options.encoding || getAudioEncoding(options.mimeType, options.filename) || 'WEBM_OPUS';
     const config = buildRecognitionConfig(encoding, options.sampleRateHertz, INTAKE_LANGUAGE_CODE, options);
 
-    recognizeStream = speechClient
+    recognizeStream = getSpeechClient()
       .streamingRecognize({
         config,
         interimResults: true,
@@ -667,7 +673,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     console.log(`Sending ${encoding} audio to Google Cloud Speech-to-Text API...`);
     
     // Call the asynchronous recognize method
-    const [response] = await speechClient.recognize(request);
+    const [response] = await getSpeechClient().recognize(request);
     const transcription = response.results
       .map(result => result.alternatives[0].transcript)
       .join('\n');

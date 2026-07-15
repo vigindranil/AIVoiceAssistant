@@ -1,3 +1,3 @@
-// Vercel Functions accepts a Node HTTP server export. Exporting the same
-// server used locally also preserves the /api/stream WebSocket upgrade route.
-module.exports = require('../src/server');
+// Standard HTTP requests use the Express handler. Keeping this separate from
+// the WebSocket export prevents a socket configuration error from crashing /.
+module.exports = require('../src/server').app;

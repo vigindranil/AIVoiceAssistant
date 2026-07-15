@@ -1,6 +1,6 @@
 # Vercel deployment
 
-This project exports its Express HTTP server through `api/index.js`. The same server handles the `/api/stream` WebSocket endpoint.
+This project exports its Express handler through `api/index.js` and its Node HTTP/WebSocket server through `api/stream.js`.
 
 ## Required Vercel settings
 

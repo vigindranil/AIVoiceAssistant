@@ -2,12 +2,17 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "rewrites": [
+    { "source": "/api/stream", "destination": "/api/stream" },
     { "source": "/(.*)", "destination": "/api" }
   ],
   "functions": {
     "api/index.js": {
       "maxDuration": 300,
       "includeFiles": ["public/**", "bot.json"]
+    },
+    "api/stream.js": {
+      "maxDuration": 300,
+      "includeFiles": ["bot.json"]
     }
   }
 }
