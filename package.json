@@ -1,0 +1,31 @@
+{
+  "name": "medical-speech-to-text",
+  "version": "1.0.0",
+  "description": "A simple web application for medical speech-to-text transcription using Google Cloud Speech-to-Text API with medical model",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "speech-to-text",
+    "google-cloud",
+    "medical",
+    "transcription",
+    "audio"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@google-cloud/speech": "^7.5.0",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "multer": "^2.2.0",
+    "pdfkit": "^0.19.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}

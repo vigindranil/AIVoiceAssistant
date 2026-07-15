@@ -1,0 +1,131 @@
+{
+  "form_id": "derm_kiosk_intake_v1",
+  "title": "Dermatology Pre-Consultation Intake Form",
+  "version": "1.0.0",
+  "description": "Question schema for AI voice chatbot kiosk intake, dermatology outpatient department",
+  "sections": [
+    {
+      "section_id": "S1",
+      "title": "Demographics",
+      "questions": [
+        { "id": "D07", "text": "What is your preferred language for the consultation?", "type": "single_select", "options": ["English", "Bengali", "Hindi", "Other"], "required": true },
+        { "id": "D01", "text": "What is your full name?", "type": "text", "required": true },
+        { "id": "D02", "text": "What is your date of birth or age?", "type": "date_or_number", "required": true },
+        { "id": "D03", "text": "What is your sex/gender?", "type": "single_select", "options": ["Male", "Female", "Other", "Prefer not to say"], "required": true },
+        { "id": "D04", "text": "What is your contact number?", "type": "phone", "required": true },
+        { "id": "D05", "text": "What city/area do you live in?", "type": "text", "required": true },
+        { "id": "D06", "text": "What is your occupation?", "type": "text", "required": false, "note": "Relevant for chemical/sun/heat exposure" }
+      ]
+    },
+    {
+      "section_id": "S2",
+      "title": "Chief Complaint",
+      "questions": [
+        { "id": "C01", "text": "What is the main skin concern bringing you in today?", "type": "text", "required": true },
+        { "id": "C02", "text": "Where on the body is it located?", "type": "multi_select", "options": ["Face", "Scalp", "Neck", "Chest", "Back", "Arms", "Hands", "Legs", "Feet", "Genital area", "Widespread/multiple areas"], "required": true },
+        { "id": "C03", "text": "When did you first notice it?", "type": "single_select", "options": ["Days ago", "Weeks ago", "Months ago", "Years ago"], "required": true },
+        { "id": "C04", "text": "Did it start suddenly or gradually?", "type": "single_select", "options": ["Suddenly", "Gradually", "Not sure"], "required": true },
+        { "id": "C05", "text": "Has it changed since it started?", "type": "single_select", "options": ["Getting bigger", "Getting smaller", "Spreading", "Changing color", "No change"], "required": true },
+        { "id": "C06", "text": "Is it present in one spot or multiple areas?", "type": "single_select", "options": ["One spot", "Multiple areas"], "required": true }
+      ]
+    },
+    {
+      "section_id": "S3",
+      "title": "Symptom Characteristics",
+      "questions": [
+        { "id": "SY01", "text": "Is it itchy?", "type": "single_select", "options": ["No", "Mild", "Moderate", "Severe"], "required": true },
+        { "id": "SY02", "text": "Is it painful or does it burn?", "type": "single_select", "options": ["No", "Mild", "Moderate", "Severe"], "required": true },
+        { "id": "SY03", "text": "Any oozing, bleeding, pus, or crusting?", "type": "multi_select", "options": ["Oozing", "Bleeding", "Pus", "Crusting", "None"], "required": true },
+        { "id": "SY04", "text": "Any scaling, flaking, or dryness?", "type": "boolean", "required": true },
+        { "id": "SY05", "text": "What color is the affected area?", "type": "single_select", "options": ["Red", "Brown", "White", "Dark/Black", "Skin-colored", "Other"], "required": true },
+        { "id": "SY06", "text": "Is it raised, flat, or a blister?", "type": "single_select", "options": ["Raised", "Flat", "Blister"], "required": true }
+      ]
+    },
+    {
+      "section_id": "S4",
+      "title": "Aggravating & Relieving Factors",
+      "questions": [
+        { "id": "A01", "text": "Does sun exposure, heat, sweating, or cold make it worse?", "type": "multi_select", "options": ["Sun", "Heat", "Sweating", "Cold", "None"], "required": false },
+        { "id": "A02", "text": "Does anything relieve it?", "type": "text", "required": false },
+        { "id": "A03", "text": "Have you tried any medication or home remedy already?", "type": "boolean", "required": true },
+        { "id": "A04", "text": "What did you try, and did it help?", "type": "text", "required": false, "condition": { "if": "A03", "equals": true } }
+      ]
+    },
+    {
+      "section_id": "S5",
+      "title": "Past Skin History",
+      "questions": [
+        { "id": "P01", "text": "Have you had this same problem before?", "type": "boolean", "required": true },
+        { "id": "P02", "text": "Have you ever been diagnosed with a skin condition?", "type": "multi_select", "options": ["Eczema", "Psoriasis", "Acne", "Vitiligo", "Fungal infection", "Allergy", "Other", "None"], "required": true },
+        { "id": "P03", "text": "What treatment did you receive previously, and did it work?", "type": "text", "required": false, "condition": { "if": "P01", "equals": true } }
+      ]
+    },
+    {
+      "section_id": "S6",
+      "title": "Medical & Family History",
+      "questions": [
+        { "id": "M01", "text": "Do you have any chronic conditions?", "type": "multi_select", "options": ["Diabetes", "Thyroid disorder", "Autoimmune disease", "Kidney disease", "Liver disease", "None"], "required": true },
+        { "id": "M02", "text": "Do you have any known allergies?", "type": "multi_select", "options": ["Drug allergy", "Food allergy", "Contact allergy (soap/cosmetic/metal)", "None"], "required": true },
+        { "id": "M03", "text": "What medications are you currently taking, including supplements?", "type": "text", "required": false },
+        { "id": "M04", "text": "Any recent fever or illness?", "type": "boolean", "required": true },
+        { "id": "M05", "text": "Any family history of skin disease?", "type": "multi_select", "options": ["Psoriasis", "Vitiligo", "Eczema", "Skin cancer", "None", "Not sure"], "required": false }
+      ]
+    },
+    {
+      "section_id": "S7",
+      "title": "Lifestyle & Exposure",
+      "questions": [
+        { "id": "L01", "text": "What is your average daily sun exposure?", "type": "single_select", "options": ["Minimal", "Moderate", "High/outdoor work"], "required": false },
+        { "id": "L02", "text": "Have you used any new soap, detergent, cosmetic, or skincare product recently?", "type": "boolean", "required": true },
+        { "id": "L03", "text": "Any recent travel?", "type": "boolean", "required": false },
+        { "id": "L04", "text": "Do you have pets at home?", "type": "boolean", "required": false },
+        { "id": "L05", "text": "Any recent diet changes?", "type": "boolean", "required": false },
+        { "id": "L06", "text": "Do you smoke or drink alcohol?", "type": "multi_select", "options": ["Smoking", "Alcohol", "Neither"], "required": false },
+        { "id": "L07", "text": "How would you rate your recent stress levels?", "type": "single_select", "options": ["Low", "Moderate", "High"], "required": false }
+      ]
+    },
+    {
+      "section_id": "S8",
+      "title": "Women-Specific",
+      "condition": { "if": "D03", "equals": "Female" },
+      "questions": [
+        { "id": "W01", "text": "Are you pregnant or breastfeeding?", "type": "single_select", "options": ["Pregnant", "Breastfeeding", "Neither"], "required": true },
+        { "id": "W02", "text": "Does the skin issue relate to your menstrual cycle?", "type": "boolean", "required": false },
+        { "id": "W03", "text": "Are you on any hormonal medication (contraceptives, fertility treatment)?", "type": "boolean", "required": false }
+      ]
+    },
+    {
+      "section_id": "S9",
+      "title": "Red-Flag Triage Screening",
+      "critical": true,
+      "questions": [
+        { "id": "R01", "text": "Is a mole or lesion rapidly growing or changing shape/color?", "type": "boolean", "required": true, "flag_if": true },
+        { "id": "R02", "text": "Is there a wound that has not healed in over 2-3 weeks?", "type": "boolean", "required": true, "flag_if": true },
+        { "id": "R03", "text": "Is there a rash along with fever, facial swelling, or difficulty breathing?", "type": "boolean", "required": true, "flag_if": true },
+        { "id": "R04", "text": "Did the rash start soon after beginning a new medication?", "type": "boolean", "required": true, "flag_if": true }
+      ],
+      "escalation": {
+        "trigger": "any_flag_true",
+        "action": "alert_front_desk_immediately",
+        "message": "Patient responses indicate a possible urgent condition. Please prioritize this patient and notify the doctor before routine queue order."
+      }
+    },
+    {
+      "section_id": "S10",
+      "title": "Photo Capture",
+      "questions": [
+        { "id": "PH01", "text": "Would you like to allow the kiosk to take a photo of the affected area to share with your doctor before consultation?", "type": "consent_boolean", "required": true },
+        { "id": "PH02", "text": "Photo capture", "type": "image_upload", "required": false, "condition": { "if": "PH01", "equals": true }, "consent_ref": "PH01", "retention_note": "Store separately with distinct consent/retention metadata per applicable data protection regulation (GDPR/HIPAA/DPDP Act)" }
+      ]
+    }
+  ],
+  "metadata_fields": {
+    "visit_id": "auto-generated",
+    "kiosk_id": "auto-captured",
+    "timestamp_start": "auto-captured",
+    "timestamp_end": "auto-captured",
+    "language_used": "from D07",
+    "escalation_flag": "boolean, computed from S9",
+    "form_completion_status": "in_progress | completed | abandoned"
+  }
+}

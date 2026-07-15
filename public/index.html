@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dermatology Voice Intake</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css?v=20260715-professional-report-7">
+</head>
+<body class="landing-page">
+  <div class="ai-background" aria-hidden="true">
+    <div class="ai-orb orb-one"></div>
+    <div class="ai-orb orb-two"></div>
+    <div class="ai-orb orb-three"></div>
+    <div class="ai-grid"></div>
+    <span class="ai-node node-one"></span>
+    <span class="ai-node node-two"></span>
+    <span class="ai-node node-three"></span>
+    <span class="ai-node node-four"></span>
+    <span class="ai-node node-five"></span>
+    <div class="medical-layer">
+      <div class="medical-scan"></div>
+      <span class="medical-cross cross-one">+</span>
+      <span class="medical-cross cross-two">+</span>
+      <span class="medical-cross cross-three">+</span>
+      <svg class="ecg-trace ecg-trace-one" viewBox="0 0 1000 120" preserveAspectRatio="none">
+        <path d="M0 62 H170 L194 62 L210 42 L228 88 L250 15 L278 104 L300 62 H480 L500 51 L518 73 L537 35 L558 84 L580 62 H1000" />
+      </svg>
+      <svg class="ecg-trace ecg-trace-two" viewBox="0 0 1000 120" preserveAspectRatio="none">
+        <path d="M0 62 H220 L240 53 L258 72 L278 24 L300 98 L326 62 H610 L628 48 L646 77 L666 18 L692 103 L718 62 H1000" />
+      </svg>
+      <div class="medical-bot-mark">
+        <span class="bot-eye"></span><span class="bot-eye"></span>
+        <i></i><b>+</b>
+      </div>
+    </div>
+  </div>
+  <main class="kiosk-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Dermatology outpatient department</p>
+        <h1>AI Voice Assistant</h1>
+      </div>
+      <div class="language-badge" aria-label="Interview language">English only · AI voice</div>
+    </header>
+
+    <section id="welcome" class="card welcome-card">
+      <div class="welcome-icon" aria-hidden="true">✦</div>
+      <h2>Let’s prepare for your consultation</h2>
+      <p>I’ll ask one question at a time and record your answers for the doctor. I cannot diagnose or give treatment advice.</p>
+      <div class="intake-guidance">
+        <strong>Voice controls</strong>
+        <span>For an optional question, say “skip” or tap <b>Skip optional</b>.</span>
+        <span>To stop at any time, say “finish early” or tap <b>Finish early &amp; create report</b>.</span>
+        <span>Start speaking only when you see <b>Microphone ready — speak now</b>.</span>
+      </div>
+      <button id="beginBtn" class="button primary large">Begin intake</button>
+      <p class="privacy-note">Your original transcription and structured answers are saved separately.</p>
+    </section>
+
+    <section id="interview" class="hidden" aria-live="polite">
+      <div class="progress-row">
+        <span id="sectionLabel">Getting started</span>
+        <span id="progressLabel">0 of 0</span>
+      </div>
+      <div class="progress-track"><div id="progressBar"></div></div>
+
+      <div class="interview-guidance" role="note">
+        <span><strong>Optional question?</strong> Say “skip.”</span>
+        <span><strong>Want to stop?</strong> Say “finish early.”</span>
+        <span><strong>Before answering:</strong> wait for the green microphone-ready message.</span>
+      </div>
+
+      <div id="urgentBanner" class="urgent-banner hidden" role="alert">
+        <strong>Staff notified</strong>
+        <span>One of your answers may require prompt attention. A staff member will assist you.</span>
+      </div>
+
+      <article class="card question-card">
+        <p id="questionNumber" class="eyebrow">Current question</p>
+        <h2 id="questionText">Loading…</h2>
+        <div id="botSpeaking" class="bot-speaking hidden" aria-label="AI assistant is speaking">
+          <div class="bot-speaking-avatar" aria-hidden="true">✦</div>
+          <div class="bot-speaking-copy">
+            <strong>AI assistant speaking</strong>
+            <span>Please listen, then answer when the microphone opens.</span>
+          </div>
+          <div class="voice-wave" aria-hidden="true">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+        <div id="optionHints" class="option-hints"></div>
+
+        <div id="voicePanel">
+          <div id="transcript" class="transcript" aria-label="Recognized answer">Press the microphone and speak your answer.</div>
+          <div class="voice-actions">
+            <button id="recordBtn" class="button microphone" aria-label="Start recording"><span>●</span> Speak answer</button>
+            <button id="stopBtn" class="button danger hidden">Stop &amp; submit</button>
+            <button id="replayBtn" class="button secondary">Replay question</button>
+          </div>
+          <div class="type-answer">
+            <label for="typedAnswer">Or type your answer</label>
+            <div><input id="typedAnswer" autocomplete="off" enterkeyhint="send"><button id="submitTextBtn" class="button primary">Submit</button></div>
+          </div>
+        </div>
+
+        <div id="photoPanel" class="photo-panel hidden">
+          <p>Consent was confirmed. Take or upload a clear photo of the affected area. You can review it before submitting.</p>
+          <input id="photoInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+          <img id="photoPreview" class="hidden" alt="Photo preview">
+          <button id="uploadPhotoBtn" class="button primary" disabled>Use this photo</button>
+        </div>
+
+        <div id="status" class="status" role="status"></div>
+      </article>
+
+      <div class="command-row">
+        <button data-command="go back" class="text-button">Correct previous answer</button>
+        <button data-command="skip" class="text-button">Skip optional</button>
+        <button data-command="call staff" class="text-button">Call staff</button>
+        <button data-command="finish early" class="text-button danger-text">Finish early &amp; create report</button>
+      </div>
+    </section>
+
+    <section id="complete" class="card hidden">
+      <h2 id="completeTitle">Intake complete</h2>
+      <p id="completeMessage">Thank you. Your answers are ready for the doctor.</p>
+      <div id="summary" class="summary ehr-report"></div>
+      <div class="completion-actions">
+        <button id="downloadPdfBtn" class="button download-button"><span aria-hidden="true">↓</span> Download PDF report</button>
+        <button id="correctLastBtn" class="button secondary">Correct last answer</button>
+        <button id="newVisitBtn" class="button primary">Start new visit</button>
+      </div>
+    </section>
+  </main>
+  <script src="app.js?v=20260715-professional-report-16"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+node_modules/
+.env
+google-cloud-key.json
+data/*.json
+data/photos/
+*.log
