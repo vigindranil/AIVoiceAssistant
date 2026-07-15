@@ -10,7 +10,7 @@ const { WebSocket, WebSocketServer } = require('ws');
 const medicalPhrases = require('./medicalPhrases');
 const { cleanTranscript } = require('./transcriptCleaner');
 const form = require('../bot.json');
-const { processAnswer, localProcess, detectCommand } = require('./answerProcessor');
+const { processAnswer, localProcess, detectCommand, extractVolunteeredAnswers } = require('./answerProcessor');
 const { validateChiefComplaintScope } = require('./scopeValidator');
 const { createOpenAIRealtimeTranscriber } = require('./openaiRealtimeStt');
 const { writeEhrPdf } = require('./pdfReport');
@@ -305,10 +305,16 @@ function saveVolunteeredAnswers(session, sourceQuestionId, rawTranscript, additi
   return saved;
 }
 
+function futureCandidateQuestions(session, currentQuestionId) {
+  return form.sections
+    .flatMap(section => section.questions.map(question => ({ ...question, section_id: section.section_id, critical: Boolean(section.critical) })))
+    .filter(question => question.id !== currentQuestionId && !session.completed_question_ids.includes(question.id));
+}
+
 function volunteeredAnswersMessage(records) {
   if (!records.length) return null;
-  const labels = records.map(record => record.question_text.replace(/[?]$/, '').toLowerCase());
-  return `I also recorded your ${labels.join(' and ')} from that answer, so I will not ask those questions again.`;
+  const questions = records.map(record => `“${record.question_text}”`).join('; ');
+  return `I also recorded ${records.length === 1 ? 'an answer' : 'answers'} for ${questions}, so I will not ask ${records.length === 1 ? 'that question' : 'those questions'} again.`;
 }
 
 function sessionResponse(session, extra = {}) {
@@ -415,7 +421,13 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
         const pending = session.pending_confirmation;
         session.pending_confirmation = null;
         const record = saveAnswer(form, session, current.section, current.question, pending.result, pending.raw_transcript, attempt);
-        const additionalRecords = saveVolunteeredAnswers(session, current.question.id, pending.raw_transcript, pending.result.additional_answers);
+        const recoveredAdditional = extractVolunteeredAnswers(pending.raw_transcript, futureCandidateQuestions(session, current.question.id));
+        const additionalRecords = saveVolunteeredAnswers(
+          session,
+          current.question.id,
+          pending.raw_transcript,
+          [...(pending.result.additional_answers || []), ...recoveredAdditional],
+        );
         const schemaEscalation = evaluateEscalation(session, current.section, current.question, record);
         const dangerEscalation = evaluateImmediateDanger(session, current.section, current.question, pending.raw_transcript, record.corrected_answer);
         const escalation = schemaEscalation || dangerEscalation;
@@ -455,9 +467,7 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
       previous_corrected_answers: session.answers.map(({ question_id, corrected_answer }) => ({ question_id, corrected_answer })),
       previous_structured_values: answerMap(session), previous_clarification_attempts: session.clarification_history[current.question.id] || [],
       current_red_flag_status: session.escalation_flag, completed_question_ids: session.completed_question_ids,
-      candidate_questions: form.sections
-        .flatMap(section => section.questions.map(question => ({ ...question, section_id: section.section_id, critical: Boolean(section.critical) })))
-        .filter(question => question.id !== current.question.id && !session.completed_question_ids.includes(question.id)),
+      candidate_questions: futureCandidateQuestions(session, current.question.id),
     };
     const result = await processAnswer(context);
     if (result.command) return handleCommand(res, session, current, result.command);
@@ -596,6 +606,7 @@ app.get('/api/health', (req, res) => {
     sttModel: STT_PROVIDER === 'openai' ? OPENAI_REALTIME_STT_MODEL : INTAKE_SPEECH_MODEL,
     realtimeStreaming: true,
     deployment: IS_VERCEL ? 'vercel' : 'node-server',
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT || null,
     storageMode: IS_VERCEL ? 'ephemeral-/tmp' : 'local-filesystem',
     loadedMedicalPhraseHints: medicalPhrases.length,
     activeMedicalPhraseHints: getActiveMedicalPhrases().length,

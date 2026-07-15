@@ -117,6 +117,12 @@ test('advanced demographic reply extracts clearly volunteered future answers', (
   ]);
 });
 
+test('patient age is never mistaken for future symptom duration', () => {
+  const candidates = ['D03', 'C03'].map(id => getQuestion(form, id).question);
+  const extracted = extractVolunteeredAnswers('46 years male', candidates);
+  assert.deepEqual(extracted.map(item => [item.question_id, item.structured_value]), [['D03', 'Male']]);
+});
+
 test('additional answer validation rejects sensitive and ambiguous fields', () => {
   const candidates = ['D03', 'D04', 'D05'].map(id => getQuestion(form, id).question);
   const accepted = validateAdditionalAnswers({

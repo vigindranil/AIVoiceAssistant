@@ -102,7 +102,7 @@ function extractVolunteeredAnswers(raw, candidateQuestions = []) {
   const optionClaims = [];
   for (const question of candidateQuestions) {
     if (!['single_select', 'multi_select'].includes(question.type) || question.id === 'D03') continue;
-    const matches = optionMatches(lower, question.options || []);
+    const matches = volunteeredOptionMatches(lower, question.options || []);
     if (matches.length) optionClaims.push({ question, matches });
   }
   const optionUsage = new Map();
@@ -154,6 +154,21 @@ function optionMatches(text, options) {
     });
   });
   return [...new Set(matches)];
+}
+
+function volunteeredOptionMatches(text, options) {
+  const normalizedText = ` ${String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `;
+  return options.filter(option => option.toLowerCase().split(/[\/()]/).map(value => value.trim()).filter(Boolean).some(alias => {
+    const words = alias.replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+    if (!words.length) return false;
+    // Future time answers must explicitly include "ago". This prevents an
+    // age such as "46 years" from filling "Years ago" later in the form.
+    if (words.includes('ago')) return normalizedText.includes(` ${words.join(' ')} `);
+    if (words.length > 1) return normalizedText.includes(` ${words.join(' ')} `);
+    const word = words[0];
+    const stem = word.endsWith('ing') && word.length > 4 ? word.slice(0, -3) : word;
+    return normalizedText.includes(` ${word} `) || (stem !== word && normalizedText.includes(` ${stem} `));
+  }));
 }
 
 function parsePhone(text) {
