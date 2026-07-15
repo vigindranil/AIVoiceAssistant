@@ -82,12 +82,22 @@ function googleSpeechClientOptions() {
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
     return { keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS };
   }
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    console.warn(`Ignoring unavailable GOOGLE_APPLICATION_CREDENTIALS path: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`);
+    delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  }
   return undefined;
 }
 
 let speechClient = null;
 function getSpeechClient() {
-  if (!speechClient) speechClient = new speech.SpeechClient(googleSpeechClientOptions());
+  if (!speechClient) {
+    const options = googleSpeechClientOptions();
+    if (IS_VERCEL && !options) {
+      throw new Error('Google Speech credentials are not configured for Vercel. Set GOOGLE_CLOUD_CREDENTIALS_JSON, or set STT_PROVIDER=openai and provide OPENAI_API_KEY.');
+    }
+    speechClient = new speech.SpeechClient(options);
+  }
   return speechClient;
 }
 
@@ -612,7 +622,7 @@ wss.on('connection', (ws) => {
           recognizeStream = null;
         }
       } catch (error) {
-        sendJson({ type: 'error', message: 'Invalid streaming control message.' });
+        sendJson({ type: 'error', message: error.message || 'Invalid streaming control message.' });
       }
 
       return;

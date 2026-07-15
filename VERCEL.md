@@ -12,6 +12,12 @@ This project exports its Express handler through `api/index.js` and its Node HTT
 3. Do not set `GOOGLE_APPLICATION_CREDENTIALS` to a path from your Mac. That path does not exist in Vercel.
 4. Redeploy after saving environment variables.
 
+### Fastest voice configuration
+
+If `OPENAI_API_KEY` is already configured, set `STT_PROVIDER=openai` and delete `GOOGLE_APPLICATION_CREDENTIALS`. No Google key file is needed in this mode.
+
+To keep Google STT, delete `GOOGLE_APPLICATION_CREDENTIALS` and add `GOOGLE_CLOUD_CREDENTIALS_JSON`. Paste the full contents of the service-account JSON file as the value; never commit that file to Git.
+
 ## Storage warning
 
 Vercel's deployed application directory is read-only. This configuration uses `/tmp` to prevent startup failures, but `/tmp` and the in-memory session map are ephemeral and may disappear when a Function instance is recycled. Before using this with real patients, replace visit persistence with an encrypted database/Redis service and photo persistence with private object storage. Do not treat the `/tmp` fallback as clinical storage.
