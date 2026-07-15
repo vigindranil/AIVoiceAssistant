@@ -119,14 +119,44 @@ test('advanced demographic reply extracts clearly volunteered future answers', (
 
 test('additional answer validation rejects sensitive and ambiguous fields', () => {
   const candidates = ['D03', 'D04', 'D05'].map(id => getQuestion(form, id).question);
-  const accepted = validateAdditionalAnswers({ candidate_questions: candidates }, {
+  const accepted = validateAdditionalAnswers({
+    candidate_questions: candidates,
+    raw_speech_to_text_transcript: 'I am male, my phone is 9999999999 and I live in Kolkata',
+  }, {
     additional_answers: [
-      { question_id: 'D03', corrected_answer: 'Male', structured_value: 'Male', confidence: 0.95 },
-      { question_id: 'D04', corrected_answer: '9999999999', structured_value: '9999999999', confidence: 0.99 },
-      { question_id: 'D05', corrected_answer: 'Kolkata', structured_value: 'Kolkata', confidence: 0.91 },
+      { question_id: 'D03', corrected_answer: 'Male', structured_value: 'Male', confidence: 0.95, evidence: 'male' },
+      { question_id: 'D04', corrected_answer: '9999999999', structured_value: '9999999999', confidence: 0.99, evidence: '9999999999' },
+      { question_id: 'D05', corrected_answer: 'Kolkata', structured_value: 'Kolkata', confidence: 0.91, evidence: 'Kolkata' },
     ],
   });
   assert.deepEqual(accepted.map(item => item.question_id), ['D03', 'D05']);
+});
+
+test('advanced symptom reply captures unique future schema options', () => {
+  const candidates = ['C02', 'C03', 'C04', 'C05', 'SY05', 'SY06'].map(id => getQuestion(form, id).question);
+  const extracted = extractVolunteeredAnswers('The rash is on my arms, started months ago, gradually spread, and is red and raised.', candidates);
+  assert.deepEqual(Object.fromEntries(extracted.map(item => [item.question_id, item.structured_value])), {
+    C02: ['Arms'],
+    C03: 'Months ago',
+    C04: 'Gradually',
+    C05: 'Spreading',
+    SY05: 'Red',
+    SY06: 'Raised',
+  });
+});
+
+test('grounded high-confidence non-sensitive boolean can be volunteered', () => {
+  const question = getQuestion(form, 'M04').question;
+  const accepted = validateAdditionalAnswers({
+    candidate_questions: [question],
+    raw_speech_to_text_transcript: 'I have not had any recent fever or illness.',
+  }, {
+    additional_answers: [{
+      question_id: 'M04', corrected_answer: 'No.', structured_value: false,
+      confidence: 0.96, evidence: 'not had any recent fever or illness',
+    }],
+  });
+  assert.equal(accepted[0].structured_value, false);
 });
 
 test('LLM output validator rejects out-of-schema values', () => {

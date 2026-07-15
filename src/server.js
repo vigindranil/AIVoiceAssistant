@@ -284,13 +284,15 @@ function confirmationPrompt(question, result) {
 function saveVolunteeredAnswers(session, sourceQuestionId, rawTranscript, additionalAnswers = []) {
   const saved = [];
   const alreadyCompleted = new Set(session.completed_question_ids);
-  const eligible = new Set(getEligibleQuestions(form, session).map(({ question }) => question.id));
-  for (const additional of additionalAnswers) {
+  const questionOrder = new Map(form.sections.flatMap(section => section.questions).map((question, index) => [question.id, index]));
+  const orderedAnswers = [...additionalAnswers].sort((left, right) => (questionOrder.get(left.question_id) ?? Infinity) - (questionOrder.get(right.question_id) ?? Infinity));
+  for (const additional of orderedAnswers) {
     if (!additional?.question_id || additional.question_id === sourceQuestionId) continue;
+    const eligible = new Set(getEligibleQuestions(form, session).map(({ question }) => question.id));
     if (alreadyCompleted.has(additional.question_id) || !eligible.has(additional.question_id)) continue;
     const found = getQuestion(form, additional.question_id);
     if (!found || ['D01', 'D02', 'D04'].includes(found.question.id)) continue;
-    if (['boolean', 'consent_boolean', 'image_upload'].includes(found.question.type) || found.question.flag_if === true || found.section.critical) continue;
+    if (['consent_boolean', 'image_upload'].includes(found.question.type) || found.question.flag_if === true || found.section.critical) continue;
     const record = saveAnswer(form, session, found.section, found.question, {
       ...additional,
       relevance_status: 'relevant_complete',
@@ -453,9 +455,9 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
       previous_corrected_answers: session.answers.map(({ question_id, corrected_answer }) => ({ question_id, corrected_answer })),
       previous_structured_values: answerMap(session), previous_clarification_attempts: session.clarification_history[current.question.id] || [],
       current_red_flag_status: session.escalation_flag, completed_question_ids: session.completed_question_ids,
-      candidate_questions: getEligibleQuestions(form, session)
-        .filter(({ question }) => question.id !== current.question.id && !session.completed_question_ids.includes(question.id))
-        .map(({ section, question }) => ({ ...question, critical: Boolean(section.critical) })),
+      candidate_questions: form.sections
+        .flatMap(section => section.questions.map(question => ({ ...question, section_id: section.section_id, critical: Boolean(section.critical) })))
+        .filter(question => question.id !== current.question.id && !session.completed_question_ids.includes(question.id)),
     };
     const result = await processAnswer(context);
     if (result.command) return handleCommand(res, session, current, result.command);

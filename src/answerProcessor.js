@@ -26,8 +26,8 @@ Your tasks are:
 19. If a patient explicitly spells their name letter by letter, reconstruct the name from those stated letters.
 20. Use the question context to resolve close speech errors when meaning is clear, such as "brush" or "rush" meaning "rash" in a skin-complaint answer, or "I problem" meaning "eye problem". Do not force a correction when multiple meanings remain plausible.
 21. The patient may answer future questions early. Inspect candidate_questions and return any other clearly and explicitly stated values in additional_answers. Never infer an unstated value.
-22. Do not put name, age/date of birth, phone, consent, image, boolean, or red-flag answers in additional_answers; those require their normal question and confirmation flow.
-23. Each additional_answers item must contain only: question_id, corrected_answer, structured_value, confidence.
+22. Do not put name, age/date of birth, phone, consent, image, or red-flag answers in additional_answers; those require their normal question and confirmation flow. A non-sensitive boolean may be included only when it is explicitly stated.
+23. Each additional_answers item must contain only: question_id, corrected_answer, structured_value, confidence, evidence. Evidence must be a short exact quote from the current patient utterance that directly supports the value.
 24. Return valid JSON only with: question_id, relevance_status, corrected_answer, structured_value, confidence, needs_clarification, clarification_question, possible_red_flag, detected_terms, additional_answers.`;
 
 const SKIP_PATTERN = /^(skip|next question|prefer not to answer|i (?:do not|don't) (?:know|want to answer))\.?$/i;
@@ -130,12 +130,14 @@ function explicitBoolean(text, consent = false) {
 
 function optionMatches(text, options) {
   const lower = text.toLowerCase();
+  const normalizedText = ` ${lower.replace(/[^a-z0-9]+/g, ' ').trim()} `;
   const normalizedWords = lower.replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
   const normalizedWordSet = new Set(normalizedWords);
   const matches = options.filter(option => {
     const aliases = option.toLowerCase().split(/[\/()]/).map(value => value.trim()).filter(Boolean);
     return aliases.some(alias => {
-      if (lower.includes(alias) || lower === option.toLowerCase()) return true;
+      const normalizedAlias = alias.replace(/[^a-z0-9]+/g, ' ').trim();
+      if (normalizedAlias && normalizedText.includes(` ${normalizedAlias} `)) return true;
 
       // Accept natural spoken variants of time choices. For example, "month",
       // "a month", and "one month ago" should all select "Months ago".
@@ -147,7 +149,8 @@ function optionMatches(text, options) {
       if (meaningfulWords.length !== 1) return false;
       const word = meaningfulWords[0];
       const singular = word.endsWith('s') && word.length > 1 ? word.slice(0, -1) : word;
-      return normalizedWordSet.has(word) || normalizedWordSet.has(singular);
+      const presentStem = word.endsWith('ing') && word.length > 4 ? word.slice(0, -3) : word;
+      return normalizedWordSet.has(word) || normalizedWordSet.has(singular) || normalizedWordSet.has(presentStem);
     });
   });
   return [...new Set(matches)];
@@ -240,19 +243,25 @@ function validateAdditionalAnswers(context, result) {
   for (const additional of Array.isArray(result.additional_answers) ? result.additional_answers : []) {
     const question = candidates.get(additional?.question_id);
     if (!question || ['D01', 'D02', 'D04'].includes(question.id)) continue;
-    if (['boolean', 'consent_boolean', 'image_upload'].includes(question.type) || question.flag_if === true || question.critical === true) continue;
+    if (['consent_boolean', 'image_upload'].includes(question.type) || question.flag_if === true || question.critical === true) continue;
+    const evidence = String(additional.evidence || '').trim();
+    const normalizedRaw = String(context.raw_speech_to_text_transcript || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const normalizedEvidence = evidence.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!normalizedEvidence || !normalizedRaw.includes(normalizedEvidence)) continue;
     try {
       const normalized = validateLlmResult(question, {
         ...additional,
         relevance_status: 'relevant_complete',
         needs_clarification: false,
       });
-      if (normalized.structured_value == null || Number(normalized.confidence) < 0.75) continue;
+      const minimumConfidence = question.type === 'boolean' ? 0.9 : ['text', 'date_or_number'].includes(question.type) ? 0.82 : 0.8;
+      if (normalized.structured_value == null || Number(normalized.confidence) < minimumConfidence) continue;
       accepted.push({
         question_id: question.id,
         corrected_answer: normalized.corrected_answer,
         structured_value: normalized.structured_value,
         confidence: normalized.confidence,
+        evidence,
         provenance: 'volunteered',
       });
     } catch {}
@@ -284,7 +293,17 @@ async function processAnswer(context) {
   if (['single_select', 'multi_select'].includes(context.current_question.type)) {
     const deterministicResult = localProcess(context.current_question, context.raw_speech_to_text_transcript);
     if (deterministicResult.relevance_status === 'relevant_complete') {
-      deterministicResult.additional_answers = extractVolunteeredAnswers(context.raw_speech_to_text_transcript, context.candidate_questions);
+      const deterministicAdditional = extractVolunteeredAnswers(context.raw_speech_to_text_transcript, context.candidate_questions);
+      let llmAdditional = [];
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          const llmResult = await processWithLlm({ ...context, resolved_current_answer: deterministicResult });
+          llmAdditional = validateAdditionalAnswers(context, llmResult);
+        } catch (error) {
+          console.error('Multi-answer extraction failed; using deterministic extraction:', error.message);
+        }
+      }
+      deterministicResult.additional_answers = mergeAdditionalAnswers(llmAdditional, deterministicAdditional);
       return deterministicResult;
     }
   }
@@ -305,7 +324,9 @@ async function processAnswer(context) {
     return result;
   } catch (error) {
     console.error('Constrained LLM processing failed; using deterministic fallback:', error.message);
-    return localProcess(context.current_question, context.raw_speech_to_text_transcript);
+    const result = localProcess(context.current_question, context.raw_speech_to_text_transcript);
+    result.additional_answers = extractVolunteeredAnswers(context.raw_speech_to_text_transcript, context.candidate_questions);
+    return result;
   }
 }
 
