@@ -21,6 +21,7 @@ const {
   evaluateEscalation,
   evaluateImmediateDanger,
   findNextQuestion,
+  getEligibleQuestions,
   getProgress,
   getQuestion,
   makePublicQuestion,
@@ -280,6 +281,34 @@ function confirmationPrompt(question, result) {
   return `I heard: ${value}. Is that correct? Please say yes or no.`;
 }
 
+function saveVolunteeredAnswers(session, sourceQuestionId, rawTranscript, additionalAnswers = []) {
+  const saved = [];
+  const alreadyCompleted = new Set(session.completed_question_ids);
+  const eligible = new Set(getEligibleQuestions(form, session).map(({ question }) => question.id));
+  for (const additional of additionalAnswers) {
+    if (!additional?.question_id || additional.question_id === sourceQuestionId) continue;
+    if (alreadyCompleted.has(additional.question_id) || !eligible.has(additional.question_id)) continue;
+    const found = getQuestion(form, additional.question_id);
+    if (!found || ['D01', 'D02', 'D04'].includes(found.question.id)) continue;
+    if (['boolean', 'consent_boolean', 'image_upload'].includes(found.question.type) || found.question.flag_if === true || found.section.critical) continue;
+    const record = saveAnswer(form, session, found.section, found.question, {
+      ...additional,
+      relevance_status: 'relevant_complete',
+      provenance: 'volunteered',
+      source_question_id: sourceQuestionId,
+    }, rawTranscript, 1);
+    alreadyCompleted.add(additional.question_id);
+    saved.push(record);
+  }
+  return saved;
+}
+
+function volunteeredAnswersMessage(records) {
+  if (!records.length) return null;
+  const labels = records.map(record => record.question_text.replace(/[?]$/, '').toLowerCase());
+  return `I also recorded your ${labels.join(' and ')} from that answer, so I will not ask those questions again.`;
+}
+
 function sessionResponse(session, extra = {}) {
   const next = findNextQuestion(form, session);
   const completed = !next && completeIfReady(form, session);
@@ -384,6 +413,7 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
         const pending = session.pending_confirmation;
         session.pending_confirmation = null;
         const record = saveAnswer(form, session, current.section, current.question, pending.result, pending.raw_transcript, attempt);
+        const additionalRecords = saveVolunteeredAnswers(session, current.question.id, pending.raw_transcript, pending.result.additional_answers);
         const schemaEscalation = evaluateEscalation(session, current.section, current.question, record);
         const dangerEscalation = evaluateImmediateDanger(session, current.section, current.question, pending.raw_transcript, record.corrected_answer);
         const escalation = schemaEscalation || dangerEscalation;
@@ -394,7 +424,8 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
           : '';
         return res.json(sessionResponse(session, {
           saved_answer: record,
-          message: 'Answer confirmed.',
+          saved_additional_answers: additionalRecords,
+          message: volunteeredAnswersMessage(additionalRecords) || 'Answer confirmed.',
           welcome_message: patientName ? `Welcome, ${patientName}. It is nice to meet you. Let us continue with your dermatology intake.` : null,
           escalation: escalation ? { action: escalation.action, message: 'Thank you. One of your answers may require prompt attention. A staff member has been notified to assist you.' } : null,
         }));
@@ -422,6 +453,9 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
       previous_corrected_answers: session.answers.map(({ question_id, corrected_answer }) => ({ question_id, corrected_answer })),
       previous_structured_values: answerMap(session), previous_clarification_attempts: session.clarification_history[current.question.id] || [],
       current_red_flag_status: session.escalation_flag, completed_question_ids: session.completed_question_ids,
+      candidate_questions: getEligibleQuestions(form, session)
+        .filter(({ question }) => question.id !== current.question.id && !session.completed_question_ids.includes(question.id))
+        .map(({ section, question }) => ({ ...question, critical: Boolean(section.critical) })),
     };
     const result = await processAnswer(context);
     if (result.command) return handleCommand(res, session, current, result.command);
@@ -458,6 +492,7 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
       return res.json(sessionResponse(session, { needs_clarification: true, retry_current: true, clarification_question: clarificationQuestion }));
     }
     const record = saveAnswer(form, session, current.section, current.question, result, rawTranscript, attempt);
+    const additionalRecords = saveVolunteeredAnswers(session, current.question.id, rawTranscript, result.additional_answers);
     const schemaEscalation = evaluateEscalation(session, current.section, current.question, record);
     const dangerEscalation = evaluateImmediateDanger(session, current.section, current.question, rawTranscript, record.corrected_answer);
     const escalation = schemaEscalation || dangerEscalation;
@@ -465,6 +500,8 @@ app.post('/api/sessions/:visitId/answer', async (req, res, next) => {
     if (dangerEscalation && dangerEscalation !== schemaEscalation) await dispatchAlert(session, dangerEscalation);
     res.json(sessionResponse(session, {
       saved_answer: record,
+      saved_additional_answers: additionalRecords,
+      message: volunteeredAnswersMessage(additionalRecords),
       escalation: escalation ? {
         action: escalation.action,
         message: 'Thank you. One of your answers may require prompt attention. A staff member has been notified to assist you.',

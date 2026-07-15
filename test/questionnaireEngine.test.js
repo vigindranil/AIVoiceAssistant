@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const form = require('../bot.json');
-const { localProcess, validateLlmResult } = require('../src/answerProcessor');
+const { extractVolunteeredAnswers, localProcess, validateAdditionalAnswers, validateLlmResult } = require('../src/answerProcessor');
 const { isHairOnlyConcern, validateChiefComplaintScope } = require('../src/scopeValidator');
 const {
   answerMap, createSession, evaluateEscalation, evaluateImmediateDanger, findNextQuestion, getEligibleQuestions,
@@ -106,6 +106,27 @@ test('time selections accept natural singular and plural speech', () => {
   assert.equal(localProcess(question, 'one month ago').structured_value, 'Months ago');
   assert.equal(localProcess(question, 'months age').structured_value, 'Months ago');
   assert.equal(localProcess(question, 'year').structured_value, 'Years ago');
+});
+
+test('advanced demographic reply extracts clearly volunteered future answers', () => {
+  const candidates = ['D03', 'D05', 'D06'].map(id => getQuestion(form, id).question);
+  const extracted = extractVolunteeredAnswers('25 years, male, Kolkata', candidates);
+  assert.deepEqual(extracted.map(item => [item.question_id, item.structured_value]), [
+    ['D03', 'Male'],
+    ['D05', 'Kolkata'],
+  ]);
+});
+
+test('additional answer validation rejects sensitive and ambiguous fields', () => {
+  const candidates = ['D03', 'D04', 'D05'].map(id => getQuestion(form, id).question);
+  const accepted = validateAdditionalAnswers({ candidate_questions: candidates }, {
+    additional_answers: [
+      { question_id: 'D03', corrected_answer: 'Male', structured_value: 'Male', confidence: 0.95 },
+      { question_id: 'D04', corrected_answer: '9999999999', structured_value: '9999999999', confidence: 0.99 },
+      { question_id: 'D05', corrected_answer: 'Kolkata', structured_value: 'Kolkata', confidence: 0.91 },
+    ],
+  });
+  assert.deepEqual(accepted.map(item => item.question_id), ['D03', 'D05']);
 });
 
 test('LLM output validator rejects out-of-schema values', () => {

@@ -25,7 +25,10 @@ Your tasks are:
 18. Treat transcription_alternatives only as speech-recognition hypotheses; use one only when it clearly fits what the patient said and the current question.
 19. If a patient explicitly spells their name letter by letter, reconstruct the name from those stated letters.
 20. Use the question context to resolve close speech errors when meaning is clear, such as "brush" or "rush" meaning "rash" in a skin-complaint answer, or "I problem" meaning "eye problem". Do not force a correction when multiple meanings remain plausible.
-21. Return valid JSON only with: question_id, relevance_status, corrected_answer, structured_value, confidence, needs_clarification, clarification_question, possible_red_flag, detected_terms.`;
+21. The patient may answer future questions early. Inspect candidate_questions and return any other clearly and explicitly stated values in additional_answers. Never infer an unstated value.
+22. Do not put name, age/date of birth, phone, consent, image, boolean, or red-flag answers in additional_answers; those require their normal question and confirmation flow.
+23. Each additional_answers item must contain only: question_id, corrected_answer, structured_value, confidence.
+24. Return valid JSON only with: question_id, relevance_status, corrected_answer, structured_value, confidence, needs_clarification, clarification_question, possible_red_flag, detected_terms, additional_answers.`;
 
 const SKIP_PATTERN = /^(skip|next question|prefer not to answer|i (?:do not|don't) (?:know|want to answer))\.?$/i;
 const YES_PATTERN = /\b(yes|yeah|yep|i do|i have|that happened|correct|affirmative|give permission|you may|i agree|allow)\b/i;
@@ -47,8 +50,73 @@ function baseResult(question, overrides = {}) {
     clarification_question: `Please answer this question: ${question.text}`,
     possible_red_flag: false,
     detected_terms: [],
+    additional_answers: [],
     ...overrides,
   };
+}
+
+function mergeAdditionalAnswers(...groups) {
+  const merged = new Map();
+  for (const item of groups.flat()) {
+    if (!item?.question_id) continue;
+    const existing = merged.get(item.question_id);
+    if (!existing || Number(item.confidence) > Number(existing.confidence)) merged.set(item.question_id, item);
+  }
+  return [...merged.values()];
+}
+
+function extractVolunteeredAnswers(raw, candidateQuestions = []) {
+  const text = String(raw || '').trim();
+  const lower = text.toLowerCase();
+  const candidates = new Map(candidateQuestions.map(question => [question.id, question]));
+  const answers = [];
+  const add = (questionId, correctedAnswer, structuredValue, confidence = 0.9) => {
+    if (!candidates.has(questionId)) return;
+    answers.push({ question_id: questionId, corrected_answer: correctedAnswer, structured_value: structuredValue, confidence, provenance: 'volunteered' });
+  };
+
+  if (candidates.has('D03')) {
+    if (/\b(female|woman)\b/i.test(text)) add('D03', 'Female', 'Female', 0.96);
+    else if (/\b(male|man)\b/i.test(text)) add('D03', 'Male', 'Male', 0.96);
+    else if (/\bprefer not to say\b/i.test(text)) add('D03', 'Prefer not to say', 'Prefer not to say', 0.96);
+  }
+
+  if (candidates.has('D05')) {
+    const explicitCity = text.match(/\b(?:from|live in|living in|city is|area is)\s+([a-z][a-z .'-]{1,60}?)(?=\s*(?:,|;|\.|$))/i);
+    const compactDemographics = text.match(/\b(?:male|man|female|woman|prefer not to say)\b[\s,;-]+([a-z][a-z .'-]{1,60})$/i);
+    const city = (explicitCity?.[1] || compactDemographics?.[1] || '').trim().replace(/[.,;]+$/, '');
+    if (city && !/^(?:years?|old)$/i.test(city)) {
+      const formattedCity = city.replace(/\b\w/g, char => char.toUpperCase());
+      add('D05', formattedCity, formattedCity, 0.9);
+    }
+  }
+
+  if (candidates.has('D06')) {
+    const occupation = text.match(/\b(?:i work as|my occupation is|i am an?|i'm an?)\s+([a-z][a-z .'-]{1,60}?)(?=\s*(?:,|;|\.|$))/i)?.[1]?.trim();
+    if (occupation && !/^(?:male|female|man|woman|years? old)$/i.test(occupation)) add('D06', occupation.replace(/\b\w/g, char => char.toUpperCase()), occupation, 0.86);
+  }
+
+  // Capture schema options only when the utterance explicitly names a unique
+  // option for one future question. This avoids applying words such as
+  // "severe" to both itch and pain questions.
+  const optionClaims = [];
+  for (const question of candidateQuestions) {
+    if (!['single_select', 'multi_select'].includes(question.type) || question.id === 'D03') continue;
+    const matches = optionMatches(lower, question.options || []);
+    if (matches.length) optionClaims.push({ question, matches });
+  }
+  const optionUsage = new Map();
+  for (const claim of optionClaims) {
+    for (const option of claim.matches) optionUsage.set(option.toLowerCase(), (optionUsage.get(option.toLowerCase()) || 0) + 1);
+  }
+  for (const { question, matches } of optionClaims) {
+    const unique = matches.filter(option => optionUsage.get(option.toLowerCase()) === 1);
+    if (!unique.length || (question.type === 'single_select' && unique.length !== 1)) continue;
+    const value = question.type === 'single_select' ? unique[0] : unique;
+    add(question.id, Array.isArray(value) ? value.join(', ') : value, value, 0.88);
+  }
+
+  return mergeAdditionalAnswers(answers);
 }
 
 function explicitBoolean(text, consent = false) {
@@ -166,6 +234,32 @@ function validateLlmResult(question, result) {
   return result;
 }
 
+function validateAdditionalAnswers(context, result) {
+  const candidates = new Map((context.candidate_questions || []).map(question => [question.id, question]));
+  const accepted = [];
+  for (const additional of Array.isArray(result.additional_answers) ? result.additional_answers : []) {
+    const question = candidates.get(additional?.question_id);
+    if (!question || ['D01', 'D02', 'D04'].includes(question.id)) continue;
+    if (['boolean', 'consent_boolean', 'image_upload'].includes(question.type) || question.flag_if === true || question.critical === true) continue;
+    try {
+      const normalized = validateLlmResult(question, {
+        ...additional,
+        relevance_status: 'relevant_complete',
+        needs_clarification: false,
+      });
+      if (normalized.structured_value == null || Number(normalized.confidence) < 0.75) continue;
+      accepted.push({
+        question_id: question.id,
+        corrected_answer: normalized.corrected_answer,
+        structured_value: normalized.structured_value,
+        confidence: normalized.confidence,
+        provenance: 'volunteered',
+      });
+    } catch {}
+  }
+  return accepted;
+}
+
 async function processWithLlm(context) {
   const endpoint = process.env.LLM_API_URL || 'https://api.openai.com/v1/chat/completions';
   const response = await fetch(endpoint, {
@@ -189,11 +283,22 @@ async function processAnswer(context) {
   // This prevents an LLM from rejecting clear replies such as "month".
   if (['single_select', 'multi_select'].includes(context.current_question.type)) {
     const deterministicResult = localProcess(context.current_question, context.raw_speech_to_text_transcript);
-    if (deterministicResult.relevance_status === 'relevant_complete') return deterministicResult;
+    if (deterministicResult.relevance_status === 'relevant_complete') {
+      deterministicResult.additional_answers = extractVolunteeredAnswers(context.raw_speech_to_text_transcript, context.candidate_questions);
+      return deterministicResult;
+    }
   }
-  if (!process.env.OPENAI_API_KEY) return localProcess(context.current_question, context.raw_speech_to_text_transcript);
+  if (!process.env.OPENAI_API_KEY) {
+    const result = localProcess(context.current_question, context.raw_speech_to_text_transcript);
+    result.additional_answers = extractVolunteeredAnswers(context.raw_speech_to_text_transcript, context.candidate_questions);
+    return result;
+  }
   try {
     const result = validateLlmResult(context.current_question, await processWithLlm(context));
+    result.additional_answers = mergeAdditionalAnswers(
+      validateAdditionalAnswers(context, result),
+      extractVolunteeredAnswers(context.raw_speech_to_text_transcript, context.candidate_questions),
+    );
     if (context.current_question.type === 'consent_boolean' && result.structured_value === true && explicitBoolean(context.raw_speech_to_text_transcript, true) !== true) {
       return baseResult(context.current_question, { clarification_question: 'Please say clearly whether you give permission: yes, I agree, or no.' });
     }
@@ -215,4 +320,4 @@ function detectCommand(raw) {
   return commands.get(text) || null;
 }
 
-module.exports = { SYSTEM_PROMPT, correctContextualTranscript, detectCommand, localProcess, processAnswer, validateLlmResult };
+module.exports = { SYSTEM_PROMPT, correctContextualTranscript, detectCommand, extractVolunteeredAnswers, localProcess, processAnswer, validateAdditionalAnswers, validateLlmResult };

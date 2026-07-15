@@ -116,6 +116,8 @@ function saveAnswer(form, session, section, question, result, rawTranscript, att
     clarification_question: null,
     clarification_history: session.clarification_history[question.id] || [],
     attempt_number: attemptNumber,
+    provenance: result.provenance || 'asked',
+    source_question_id: result.source_question_id || question.id,
     answered_at: now(),
   };
   session.answers = session.answers.filter(answer => answer.question_id !== question.id);
