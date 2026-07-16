@@ -291,7 +291,7 @@ function saveVolunteeredAnswers(session, sourceQuestionId, rawTranscript, additi
     const eligible = new Set(getEligibleQuestions(form, session).map(({ question }) => question.id));
     if (alreadyCompleted.has(additional.question_id) || !eligible.has(additional.question_id)) continue;
     const found = getQuestion(form, additional.question_id);
-    if (!found || ['D01', 'D02', 'D04'].includes(found.question.id)) continue;
+    if (!found) continue;
     if (['consent_boolean', 'image_upload'].includes(found.question.type) || found.question.flag_if === true || found.section.critical) continue;
     const record = saveAnswer(form, session, found.section, found.question, {
       ...additional,

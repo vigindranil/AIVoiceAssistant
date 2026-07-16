@@ -109,12 +109,19 @@ test('time selections accept natural singular and plural speech', () => {
 });
 
 test('advanced demographic reply extracts clearly volunteered future answers', () => {
-  const candidates = ['D03', 'D05', 'D06'].map(id => getQuestion(form, id).question);
-  const extracted = extractVolunteeredAnswers('25 years, male, Kolkata', candidates);
+  const candidates = ['D02', 'D03', 'D05', 'D06'].map(id => getQuestion(form, id).question);
+  const extracted = extractVolunteeredAnswers('Indranil 25 years, male, Kolkata', candidates);
   assert.deepEqual(extracted.map(item => [item.question_id, item.structured_value]), [
+    ['D02', { age: 25 }],
     ['D03', 'Male'],
     ['D05', 'Kolkata'],
   ]);
+});
+
+test('name question separates the name from volunteered demographics', () => {
+  const question = getQuestion(form, 'D01').question;
+  const result = localProcess(question, 'Indranil 46 male Kolkata');
+  assert.equal(result.structured_value, 'Indranil');
 });
 
 test('patient age is never mistaken for future symptom duration', () => {
@@ -123,7 +130,7 @@ test('patient age is never mistaken for future symptom duration', () => {
   assert.deepEqual(extracted.map(item => [item.question_id, item.structured_value]), [['D03', 'Male']]);
 });
 
-test('additional answer validation rejects sensitive and ambiguous fields', () => {
+test('additional answer validation accepts grounded demographics and phone but rejects missing evidence', () => {
   const candidates = ['D03', 'D04', 'D05'].map(id => getQuestion(form, id).question);
   const accepted = validateAdditionalAnswers({
     candidate_questions: candidates,
@@ -133,9 +140,10 @@ test('additional answer validation rejects sensitive and ambiguous fields', () =
       { question_id: 'D03', corrected_answer: 'Male', structured_value: 'Male', confidence: 0.95, evidence: 'male' },
       { question_id: 'D04', corrected_answer: '9999999999', structured_value: '9999999999', confidence: 0.99, evidence: '9999999999' },
       { question_id: 'D05', corrected_answer: 'Kolkata', structured_value: 'Kolkata', confidence: 0.91, evidence: 'Kolkata' },
+      { question_id: 'D05', corrected_answer: 'Delhi', structured_value: 'Delhi', confidence: 0.99, evidence: 'Delhi' },
     ],
   });
-  assert.deepEqual(accepted.map(item => item.question_id), ['D03', 'D05']);
+  assert.deepEqual(accepted.map(item => item.question_id), ['D03', 'D04', 'D05']);
 });
 
 test('advanced symptom reply captures unique future schema options', () => {

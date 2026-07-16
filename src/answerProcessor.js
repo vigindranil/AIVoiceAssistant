@@ -26,7 +26,7 @@ Your tasks are:
 19. If a patient explicitly spells their name letter by letter, reconstruct the name from those stated letters.
 20. Use the question context to resolve close speech errors when meaning is clear, such as "brush" or "rush" meaning "rash" in a skin-complaint answer, or "I problem" meaning "eye problem". Do not force a correction when multiple meanings remain plausible.
 21. The patient may answer future questions early. Inspect candidate_questions and return any other clearly and explicitly stated values in additional_answers. Never infer an unstated value.
-22. Do not put name, age/date of birth, phone, consent, image, or red-flag answers in additional_answers; those require their normal question and confirmation flow. A non-sensitive boolean may be included only when it is explicitly stated.
+22. Name, age/date of birth, phone, and non-sensitive boolean answers may be included in additional_answers only when directly and unambiguously stated. Consent, image, and red-flag answers must never be included; those require their dedicated safety flow.
 23. Each additional_answers item must contain only: question_id, corrected_answer, structured_value, confidence, evidence. Evidence must be a short exact quote from the current patient utterance that directly supports the value.
 24. Return valid JSON only with: question_id, relevance_status, corrected_answer, structured_value, confidence, needs_clarification, clarification_question, possible_red_flag, detected_terms, additional_answers.`;
 
@@ -75,6 +75,21 @@ function extractVolunteeredAnswers(raw, candidateQuestions = []) {
     answers.push({ question_id: questionId, corrected_answer: correctedAnswer, structured_value: structuredValue, confidence, provenance: 'volunteered' });
   };
 
+  if (candidates.has('D01')) {
+    const name = text.match(/\b(?:my name is|name is|i am|i'm)\s+([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,4}?)(?=\s*(?:,|;|\.|$))/i)?.[1]?.trim();
+    if (name && !/^(?:male|female|man|woman)$/i.test(name)) {
+      const formattedName = name.replace(/\b\w/g, char => char.toUpperCase());
+      add('D01', formattedName, formattedName, 0.92);
+    }
+  }
+
+  if (candidates.has('D02')) {
+    const explicitAge = text.match(/\b(\d{1,3})\s*(?:years?|yrs?)(?:\s+old)?\b/i);
+    const compactAge = text.match(/\b(\d{1,3})\b(?=\s*(?:,|;|-)?\s*(?:male|female|man|woman)\b)/i);
+    const age = Number(explicitAge?.[1] || compactAge?.[1]);
+    if (age >= 1 && age <= 120) add('D02', `${age} years`, { age }, 0.96);
+  }
+
   if (candidates.has('D03')) {
     if (/\b(female|woman)\b/i.test(text)) add('D03', 'Female', 'Female', 0.96);
     else if (/\b(male|man)\b/i.test(text)) add('D03', 'Male', 'Male', 0.96);
@@ -94,6 +109,13 @@ function extractVolunteeredAnswers(raw, candidateQuestions = []) {
   if (candidates.has('D06')) {
     const occupation = text.match(/\b(?:i work as|my occupation is|i am an?|i'm an?)\s+([a-z][a-z .'-]{1,60}?)(?=\s*(?:,|;|\.|$))/i)?.[1]?.trim();
     if (occupation && !/^(?:male|female|man|woman|years? old)$/i.test(occupation)) add('D06', occupation.replace(/\b\w/g, char => char.toUpperCase()), occupation, 0.86);
+  }
+
+
+  if (candidates.has('D04')) {
+    const phoneText = text.match(/\b(?:phone|mobile|contact)(?:\s+(?:number|is))?\s*(?:is|:|-)?\s*([+\d][\d\s-]{6,20})/i)?.[1];
+    const phone = phoneText ? parsePhone(phoneText) : null;
+    if (phone) add('D04', phone, phone, 0.95);
   }
 
   // Capture schema options only when the utterance explicitly names a unique
@@ -187,6 +209,12 @@ function correctContextualTranscript(question, text) {
   return normalized;
 }
 
+function extractCurrentName(text) {
+  const normalized = String(text || '').trim().replace(/^(?:my name is|name is)\s+/i, '');
+  const compact = normalized.match(/^([a-z][a-z'-]*(?:\s+[a-z][a-z'-]*){0,4}?)(?=\s*(?:,|;|-)?\s*(?:\d{1,3}(?:\s*(?:years?|yrs?)(?:\s+old)?)?|male|female|man|woman)\b)/i)?.[1];
+  return (compact || normalized).trim().replace(/[.,;]+$/, '');
+}
+
 function localProcess(question, raw) {
   const text = String(raw || '').trim();
   if (!text) return baseResult(question, { relevance_status: 'no_response', clarification_question: `I did not hear an answer. ${question.text}` });
@@ -226,7 +254,10 @@ function localProcess(question, raw) {
 
   if (question.type === 'text') {
     if (text.length < 2) return baseResult(question, { clarification_question: 'Please give a little more detail.' });
-    const correctedText = correctContextualTranscript(question, text);
+    const correctedText = question.id === 'D01' ? extractCurrentName(text) : correctContextualTranscript(question, text);
+    if (question.id === 'D01' && (!correctedText || /\d/.test(correctedText))) {
+      return baseResult(question, { clarification_question: 'Please say only your full name, or say your name followed by your age, gender, and city.' });
+    }
     return baseResult(question, { relevance_status: 'relevant_complete', corrected_answer: correctedText.replace(/^\w/, char => char.toUpperCase()), structured_value: correctedText, confidence: correctedText === text ? 0.72 : 0.82, needs_clarification: false, clarification_question: null });
   }
 
@@ -249,6 +280,12 @@ function validateLlmResult(question, result) {
     result.structured_value = phone;
     result.requires_confirmation = true;
   }
+  if (question.type === 'date_or_number' && result.structured_value != null) {
+    const value = result.structured_value;
+    const validAge = Number.isInteger(value?.age) && value.age >= 1 && value.age <= 120;
+    const validDate = typeof value?.date_of_birth === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.date_of_birth);
+    if (!validAge && !validDate) throw new Error('LLM returned an invalid age or date of birth.');
+  }
   return result;
 }
 
@@ -257,7 +294,7 @@ function validateAdditionalAnswers(context, result) {
   const accepted = [];
   for (const additional of Array.isArray(result.additional_answers) ? result.additional_answers : []) {
     const question = candidates.get(additional?.question_id);
-    if (!question || ['D01', 'D02', 'D04'].includes(question.id)) continue;
+    if (!question) continue;
     if (['consent_boolean', 'image_upload'].includes(question.type) || question.flag_if === true || question.critical === true) continue;
     const evidence = String(additional.evidence || '').trim();
     const normalizedRaw = String(context.raw_speech_to_text_transcript || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -269,7 +306,9 @@ function validateAdditionalAnswers(context, result) {
         relevance_status: 'relevant_complete',
         needs_clarification: false,
       });
-      const minimumConfidence = question.type === 'boolean' ? 0.9 : ['text', 'date_or_number'].includes(question.type) ? 0.82 : 0.8;
+      const minimumConfidence = ['D01', 'D02', 'D04'].includes(question.id)
+        ? 0.9
+        : question.type === 'boolean' ? 0.9 : ['text', 'date_or_number'].includes(question.type) ? 0.82 : 0.8;
       if (normalized.structured_value == null || Number(normalized.confidence) < minimumConfidence) continue;
       accepted.push({
         question_id: question.id,
